@@ -1,0 +1,125 @@
+---
+title: "Series de tiempo - 1"
+author: "Vásquez Guerra Carlos Fernando"
+date: "2023-08-25"
+output:
+  html_document: 
+    theme: united
+    highlight: tango
+    df_print: paged
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      message = FALSE,
+                      warning = FALSE)
+```
+
+```{css, echo=FALSE}
+.scroll-300 {
+  max-height: 300px;
+}
+```
+
+```{r}
+library(tidyverse)
+library(forecast)
+library(lubridate)
+library(patchwork)
+```
+
+Empezamos cargando nuestros datos, los cuales pueden ser obtenidos del siguiente [enlace](https://www.kaggle.com/datasets/souravprakashai/walmart-condensed-sales-data).
+
+```{r}
+walmart <- read_csv("walmart.csv")
+walmart
+```
+
+De manera inicial, realicemos una visualización de la serie de tiempo que podríamos obtener de las variables `Date` y `Weekly_Sales` y de algunos de los registros:
+
+```{r}
+walmart %>% head(400) %>% ggplot(aes(x = Date, y = Weekly_Sales)) + geom_line(stat = "identity") 
+```
+
+Esta gráfica tiene un comportamiento extraño, ya que parece no tener un comportamiento continuo. El problema en este caso es que, originalmente, la variable `Date` es de tipo `String`. Modifiquemos el tipo de dato de esta:
+
+```{r}
+walmart <- walmart %>% mutate(Date = as.Date(Date, format = '%d-%m-%Y'))
+```
+
+Si graficamos la anterior muestra podemos ver que tenemos una mejor representación de la serie.
+
+```{r}
+walmart %>% head(400) %>% ggplot(aes(x = Date, y = Weekly_Sales)) + geom_line(stat = "identity") 
+```
+
+Ahora, realicemos una serie de tiempo (un objeto `ts`):
+
+```{r, class.output = "scroll-300"}
+ts(walmart$Weekly_Sales, start = 2010)
+```
+
+Y como vemos, nos falta declarar más detalle en la construcción de la serie.
+
+```{r}
+print(min(walmart$Date))
+print(max(walmart$Date))
+```
+
+Sabemos la fecha más antigua y la más cercana registrada. Tomemos un año y veamos cuantos registros tenemos en esta unidad de tiempo
+
+```{r}
+walmart  %>% filter(Date < as.Date("2012-01-01") & Date > as.Date("2010-12-31")) %>% group_by(Store) %>% summarise(n())
+```
+
+Véase que utilizamos la variable `Store` para agrupar, ya que no todos los registros corresponden a una sola tienda. En este punto, podemos deducir que tenemos la información recabada en cada semana.
+
+```{r, class.output = "scroll-300"}
+ts(walmart$Weekly_Sales, start = c(2010), frequency = 52)
+```
+
+Reducimos considerablemente el rango de fechas en la serie, aunque aún no es lo deseado. En este momento no hemos considerado que tenemos registros de cada tienda en el conjunto de datos, por lo que tomemos solo una (la primera, por ejemplo) para reducir nuestos datos
+
+```{r}
+first_store <- walmart %>% filter(Store == 1)
+ts(first_store$Weekly_Sales, start = 2010, frequency = 52)
+```
+Perfecto, ya tenemos un rango más creíble, aunque no comenzamos en la primera semana del año 2010 en el conjunto de datos, si no en la semana que correponde al 5 de febrero del 2010
+
+```{r}
+first_store
+```
+
+Vamos a considerar lo anterior para tener un objeto de serie de tiempo más adecuado.
+
+```{r}
+first_week_Store_1 <- first_store$Date %>% min() %>% week() 
+last_week_Store_1 <- first_store$Date %>% max() %>% week()
+
+print(paste0("Se tienen los datos desde la semana ", first_week_Store_1, 
+      " del 2010 hasta la semana ", last_week_Store_1, " del 2012"))
+```
+
+```{r}
+(serie_first_store <- ts(first_store$Weekly_Sales, start = c(2010, first_week_Store_1), frequency = 52))
+```
+
+Ya que tenemos una mejor abstracción, volvamos a visualizar la serie:
+
+```{r}
+serie_first_store %>% forecast::autoplot()
+```
+
+Podemos ver una tendencia a la alza y diferentes patrones de estacionalidad en la serie, lo ccual se cconfirma al realizar una descomposición aditiva de la serie:
+
+```{r}
+serie_first_store %>% decompose() %>% forecast::autoplot()
+```
+
+De manera rápida y sin centrarnos en el diseño de las gráficas, podemos ver que ese efecto de estacionalidad es visible en las gráficas de autocorrelación y autocorrelación pacial
+
+```{r}
+(serie_first_store %>% ggAcf()) + (serie_first_store %>% ggPacf())
+```
+
