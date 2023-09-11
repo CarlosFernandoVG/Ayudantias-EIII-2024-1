@@ -1,0 +1,203 @@
+---
+title: "Ayudantía 2"
+author: "Vásquez Guerra Carlos Fernando"
+date: "2023-09-01"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(patchwork)
+library(forecast)
+library(kableExtra)
+source("functions.R")
+```
+
+```{css, echo=FALSE}
+.scroll-300 {
+  max-height: 300px;
+}
+```
+
+```{r, include=FALSE}
+hooks = knitr::knit_hooks$get()
+hook_foldable = function(type) {
+  force(type)
+  function(x, options) {
+    res = hooks[[type]](x, options)
+    
+    if (isFALSE(options[[paste0("fold.", type)]])) return(res)
+    
+    paste0(
+      "<details><summary>", type, "</summary>\n\n",
+      res,
+      "\n\n</details>"
+    )
+  }
+}
+knitr::knit_hooks$set(
+  output = hook_foldable("output"),
+  plot = hook_foldable("plot")
+)
+```
+
+### Correlogramas
+
+¿Cómo será la serie de tiempo si tiene el siguiente correlograma? ¿Tenemos tendencia? ¿Estacionariedad?
+
+```{r fold.output=FALSE, fold.plot=FALSE}
+tibble_sen <- tibble(x = 1:100, y = sin(x * pi/4))
+sin_plot1 <- tibble_sen %>% ggplot(aes(x = x, y = y)) + geom_line() 
+sin_plot2 <- ggAcf(tibble_sen$y, lag.max = 30) + ggtitle(NULL)
+sin_plot2
+```
+
+Veamos la gráfica original.
+```{r}
+sin_plot1 / sin_plot2
+```
+
+El correlograma nos ayuda a ver efectos sobre la estacionariedad y la tendencia (como su ausencia).
+
+¿Que podemos decir de la serie fuente en este caso?
+
+```{r fold.output=FALSE, fold.plot=FALSE}
+((tibble(x = 1:100) %>% ggAcf()+ 
+  ggtitle("Autocorrelación simple") + 
+  labs(x = "Lag", y = "ACF")) +
+
+(tibble(x = 1:100) %>% ggPacf()+ 
+  ggtitle("Autocorrelación parcial") + 
+  scale_y_continuous(name = "PACF", position = 'right') + 
+  labs(x = "Lag")))
+```
+
+Cuando tenemos problemas de estacionariedad, la autocorrelación parcial da más información sobre este componente
+
+```{r}
+(tibble(x = 1:100) %>% ggplot(aes(x = x, y = x)) +
+  geom_point() + 
+  labs(x = "Tiempo", y = "f(x)")) /
+
+((tibble(x = 1:100) %>% ggAcf()+ 
+  ggtitle("Autocorrelación simple") + 
+  labs(x = "Lag", y = "ACF") ) +
+
+(tibble(x = 1:100) %>% ggPacf()+ 
+  ggtitle("Autocorrelación parcial") + 
+  scale_y_continuous(name = "PACF", position = 'right') + 
+  labs(x = "Lag")))
+```
+
++ Cuando existe una tendencia, las autocorrelaciones tenderán a ser grandes al inicio e irán decayendo a medida que aumentan los rezagos.
++ Cuando existe estacionalidad, las autocorrelaciones serán más grandes para valores estacionarios (múltiplos) que en otros rezagos.
++ Cuando no existe estacionalidad, la autocorrelación parcial nos aporta información relevante.
+
+```{r, echo=FALSE}
+data_frame(Proceso = c("$AR(p)$", "$MA(q)$", "ARMA(p,q)"), 
+           "$ACF$" = c("Decaimiento exponencial o \n amortiguamiento sinusoidal",
+                       "Corte después del retraso $q$",
+                       "Sin cortes bruscos"), 
+           "$PACF$"=c("Corte después del retraso $p$",
+                      "Decaimiento exponencial o \n amortiguamiento sinusoidal",
+                      "Sin cortes bruscos")) %>% 
+  kable(booktabs = T, align=rep('c'), escape = FALSE) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F) %>% 
+  row_spec(0, bold = F) %>% 
+  column_spec(1:3, border_right = T)
+```
+
+### Modelos lineales
+
+¿Qué son los modelos AR y MA?
+
+```{r fold.output=FALSE, fold.plot=FALSE}
+set.seed(11)
+#Diferentes coeficientes para los modelos AR
+ARcoefficients <- c(0.3, 0.5, -0.1)
+#Vamos a simular y guardar todo en una lista
+AR_model <- stats::arima.sim(n = 10000, list(ar = ARcoefficients))
+
+AM_model <- stats::arima.sim(n = 10000, list(ma = ARcoefficients))
+
+series_plot(AR_model, 100, TRUE) /
+series_plot(AM_model, 100, TRUE)
+```
+
+¿Cuándo aplicamos un ARIMA?
+
+```{r}
+walmart <- read_csv("walmart.csv")
+walmart <- walmart %>% mutate(Date = as.Date(Date, format = '%d-%m-%Y'))
+first_store <- walmart %>% filter(Store == 7)
+first_week_Store_1 <- first_store$Date %>% min() %>% week() 
+last_week_Store_1 <- first_store$Date %>% max() %>% week()
+
+(serie_first_store <- ts(first_store$Weekly_Sales, start = c(2010, first_week_Store_1), frequency = 52))
+
+(serie_first_store %>% forecast::autoplot()) / 
+((serie_first_store %>% ggAcf() + ggtitle("ACF")) +  
+   (serie_first_store %>% ggPacf() + ggtitle("PACF")))
+```
+
+```{r}
+forecast::Arima(serie_first_store, order = c(2,0,0)) 
+```
+```{r}
+forecast::Arima(serie_first_store, order = c(1,0,0)) 
+```
+
+```{r}
+(serie_2_store <- ts(diff(first_store$Weekly_Sales), start = c(2010, first_week_Store_1), frequency = 52))
+
+serie_plot <- function(serie){
+  (serie %>% forecast::autoplot()) / 
+    ((serie %>% ggAcf() + ggtitle("ACF")) +  
+       (serie %>% ggPacf() + ggtitle("PACF")))
+}
+
+serie_plot(serie_2_store)
+```
+
+```{r}
+(serie_3_store <- ts(diff(first_store$Weekly_Sales, differences = 1, lag = 52), start = c(2010, first_week_Store_1), frequency = 52))
+
+serie_plot <- function(serie){
+  (serie %>% forecast::autoplot()) / 
+    ((serie %>% ggAcf() + ggtitle("ACF")) +  
+       (serie %>% ggPacf() + ggtitle("PACF")))
+}
+
+serie_plot(serie_3_store)
+```
+```{r}
+forecast::Arima(serie_3_store, order = c(2,0,0))
+```
+```{r}
+forecast::auto.arima(serie_3_store)
+```
+```{r}
+model_final <- forecast::auto.arima(serie_first_store)
+```
+
+```{r}
+Box.test(serie_first_store)
+```
+```{r}
+forecast::checkresiduals(model_final)
+```
++ Intervalos de confianza
++ Intervalos de predicción
+
+```{r}
+model_final %>% forecast::forecast(h = 104) %>% autoplot()
+```
+
+```{r}
+forecast::Arima(serie_first_store, order = c(2,0,0))  %>% forecast::forecast(h = 104) %>% autoplot()
+```
+
+
